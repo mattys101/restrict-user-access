@@ -359,6 +359,10 @@ final class RUA_Level_Manager {
 	/**
 	 * Add level to user
 	 *
+	 * NOTE: Since 0.16.1-mattys101, changed to use 'update_user_meta' for the start
+	 *       time to ensure re-adding an expired level is correctly treated as adding 
+	 *       a new level.
+	 *
 	 * @since  0.3
 	 * @param  int           $user_id
 	 * @param  int           $level_id
@@ -369,9 +373,60 @@ final class RUA_Level_Manager {
 			$this->reset_user_levels_caps( $user_id );
 			$user_level = add_user_meta( $user_id, RUA_App::META_PREFIX.'level', $level_id,false);
 			if($user_level) {
-				add_user_meta($user_id,RUA_App::META_PREFIX.'level_'.$level_id,time(),true);
+				update_user_meta($user_id, RUA_App::META_PREFIX.'level_'.$level_id, time());
 			}
 			return $level_id;
+		}
+		return false;
+	}
+	
+	/**
+	 * Renew a level to user, only if the level is currently held and has a duration.
+	 * Returns FALSE if the renewal is not performed.
+	 *
+	 * If $once_per_period is TRUE (the default), the membership is not renewed if the
+	 * latest renewal is already in the future. That is, only one renewal can be performed 
+	 * per period. Setting $once_per_period to FALSE will allow multiple renews to be
+	 * performed, extending the period by one duration each time.
+	 *
+	 * NOTE: Since 'has_user_level' excludes expired levels, an expired level cannot 
+	 *       be renewed, instead it must be re-added using 'add_user_level'.
+	 *       The (wanted) side-effect of this is that renewing before expiry maintains
+	 *       the original start date, while re-adding changes the start date of the 
+	 *       membership.
+	 *
+	 * @since  0.16.1-mattys101
+	 * @param  int           $user_id
+	 * @param  int           $level_id
+	 * @param  boolean       $once_per_period (default: true)
+	 * @return int|boolean
+	 */
+	public function renew_user_level($user_id, $level_id, $once_per_period=true) {
+		if($this->has_user_level($user_id,$level_id)) {
+			
+			$renewed = false;
+			$time = $this->get_user_level_start($user_id, $level_id);
+			$renew_time = $this->get_user_level_renew($user_id, $level_id);
+			
+			// Only allow one renew per period
+			if ($once_per_period && $renew_time && $renew_time > time()) {
+				return false;
+			}
+			
+			if ($renew_time && $renew_time > $time) {
+				$time = $renew_time;
+			}
+			
+			$duration = $this->metadata()->get('duration')->get_data($level_id);
+			
+			if( isset($duration['count'], $duration['unit']) && $time && $duration['count'] ) {
+				$time = strtotime('+'.$duration['count'].' '.$duration['unit'], $time);
+				$renewed = update_user_meta($user_id, RUA_App::META_PREFIX.'level_renew_'.$level_id, $time);
+			}
+			
+			if ($renewed) {
+				return $level_id;
+			}
 		}
 		return false;
 	}
@@ -387,7 +442,8 @@ final class RUA_Level_Manager {
 	public function remove_user_level($user_id,$level_id) {
 		$this->reset_user_levels_caps( $user_id );
 		return delete_user_meta($user_id,RUA_App::META_PREFIX.'level',$level_id) &&
-			delete_user_meta($user_id,RUA_App::META_PREFIX.'level_'.$level_id);
+			delete_user_meta($user_id,RUA_App::META_PREFIX.'level_'.$level_id) &&
+			( delete_user_meta($user_id,RUA_App::META_PREFIX.'level_renew_'.$level_id) || true );
 	}
 
 	/**
@@ -496,9 +552,31 @@ final class RUA_Level_Manager {
 		}
 		return 0;
 	}
+	
+	/**
+	 * Get time of user level renewal (i.e. the time that the renewal 
+	 * should start, not strictly the time that the renewal was performed).
+	 *
+	 * @since  0.16.1-mattys101
+	 * @param  WP_User  $user
+	 * @param  int      $level_id
+	 * @return int
+	 */
+	public function get_user_level_renew($user_id = null, $level_id) {
+		if($user_id || is_user_logged_in()) {
+			if(!$user_id) {
+				$user_id = wp_get_current_user();
+				$user_id = $user_id->ID;
+			}
+			return (int)get_user_meta($user_id,RUA_App::META_PREFIX.'level_renew_'.$level_id,true);
+		}
+		return 0;
+	}
 
 	/**
-	 * Get time of user level expiry
+	 * Get time of user level expiry.
+	 *
+	 * Since 0.16.1-mattys101, consideres the 'renew' time not just the 'start' time.
 	 *
 	 * @since  0.5
 	 * @param  WP_User  $user
@@ -512,9 +590,17 @@ final class RUA_Level_Manager {
 				$user_id = $user_id->ID;
 			}
 			$time = $this->get_user_level_start($user_id,$level_id);
+			$renew_time = $this->get_user_level_renew($user_id,$level_id);
 			$duration = $this->metadata()->get('duration')->get_data($level_id);
+			
 			if(isset($duration['count'],$duration['unit']) && $time && $duration['count']) {
+				
+				if ($renew_time && $renew_time > $time) {
+					$time = $renew_time;
+				}
+				
 				$time = strtotime('+'.$duration['count'].' '.$duration['unit']. ' 23:59',$time);
+				
 				return $time;
 			}
 		}

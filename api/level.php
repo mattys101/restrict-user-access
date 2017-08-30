@@ -51,6 +51,18 @@ function rua_get_user_level_start($user_id = null,$level_id) {
 }
 
 /**
+ * API to get user level renew time
+ *
+ * @since  0.16.1-mattys101
+ * @param  int  $user_id
+ * @param  int  $level_id
+ * @return int
+ */
+function rua_get_user_level_renew($user_id = null,$level_id) {
+	return RUA_App::instance()->level_manager->get_user_level_renew($user_id,$level_id);
+}
+
+/**
  * API to get user level expiry time
  *
  * @since  0.9
@@ -96,6 +108,32 @@ function rua_has_user_level($user_id,$level_id) {
  */
 function rua_add_user_level($user_id,$level_id) {
 	return RUA_App::instance()->level_manager->add_user_level($user_id,$level_id);
+}
+
+/**
+ * API to renew level to user
+ *
+ * @since  0.16.1-mattys101
+ * @param  int  $user_id
+ * @param  int  $level_id
+ * @parem  boolean $once_per_period
+ * @return int|boolean
+ */
+function rua_renew_user_level($user_id, $level_id, $once_per_period=true) {
+	return RUA_App::instance()->level_manager->renew_user_level($user_id, $level_id, $once_per_period);
+}
+
+/**
+ * API to add or renew level to user.
+ *
+ * @since  0.16.1-mattys101
+ * @param  int  $user_id
+ * @param  int  $level_id
+ * @return int|boolean
+ */
+function rua_add_renew_user_level($user_id,$level_id) {
+	return RUA_App::instance()->level_manager->add_user_level($user_id,$level_id) || 
+		RUA_App::instance()->level_manager->renew_user_level($user_id,$level_id);
 }
 
 /**

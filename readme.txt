@@ -9,6 +9,8 @@ License: GPLv3
 
 Create Access Levels for your users to manage capabilities and conditionally restrict content. Lightweight and powerful.
 
+Modification Notice: This version of Restrict User Access has been modified by Matt Selway (mattys101) to support mebership renewals.
+
 == Description ==
 
 Restrict content and contexts to control what your users get exclusive access to, or drip content over time. Create an unlimited number of Access Levels and override user and role capabilities.
