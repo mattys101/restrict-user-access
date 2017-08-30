@@ -371,10 +371,16 @@ final class RUA_Level_Manager {
 	public function add_user_level($user_id,$level_id) {
 		if(!$this->has_user_level($user_id,$level_id)) {
 			$this->reset_user_levels_caps( $user_id );
-			$user_level = update_user_meta( $user_id, RUA_App::META_PREFIX.'level', $level_id);
+			$user_level = true;
+			
+			if ( !in_array($level_id, get_user_meta($user_id, RUA_App::META_PREFIX.'level', $level_id)) ) {
+				$user_level = add_user_meta( $user_id, RUA_App::META_PREFIX.'level', $level_id, false);
+			}
+			
 			if($user_level) {
 				update_user_meta($user_id, RUA_App::META_PREFIX.'level_'.$level_id, time());
 			}
+			
 			return $level_id;
 		}
 		return false;
