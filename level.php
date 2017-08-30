@@ -359,8 +359,8 @@ final class RUA_Level_Manager {
 	/**
 	 * Add level to user
 	 *
-	 * NOTE: Since 0.16.1-mattys101, changed to use 'update_user_meta' for the start
-	 *       time to ensure re-adding an expired level is correctly treated as adding 
+	 * NOTE: Since 0.16.1-mattys101, changed to use 'update_user_meta' to 
+	 *       ensure re-adding an expired level is correctly treated as adding 
 	 *       a new level.
 	 *
 	 * @since  0.3
@@ -371,7 +371,7 @@ final class RUA_Level_Manager {
 	public function add_user_level($user_id,$level_id) {
 		if(!$this->has_user_level($user_id,$level_id)) {
 			$this->reset_user_levels_caps( $user_id );
-			$user_level = add_user_meta( $user_id, RUA_App::META_PREFIX.'level', $level_id,false);
+			$user_level = update_user_meta( $user_id, RUA_App::META_PREFIX.'level', $level_id);
 			if($user_level) {
 				update_user_meta($user_id, RUA_App::META_PREFIX.'level_'.$level_id, time());
 			}

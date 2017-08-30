@@ -121,6 +121,7 @@ final class RUA_Members_List extends WP_List_Table {
 			$user->ID
 		));
 		$actions = array(
+			'renew' => '<a href="'.wp_nonce_url($admin_url.'&action=renew_user','update-post_'.$_REQUEST['level_id']).'">'.__('Renew').'</a>',
 			'delete' => '<a href="'.wp_nonce_url($admin_url.'&action=remove_user','update-post_'.$_REQUEST['level_id']).'">'.__('Remove').'</a>'
 		);
 		echo $title . $this->row_actions( $actions );
@@ -170,6 +171,21 @@ final class RUA_Members_List extends WP_List_Table {
 
 			$status .= '<br><abbr title="' . $t_time . '">'.$h_time. '</abbr>';
 		}
+		$renew_time = RUA_App::instance()->level_manager->get_user_level_renew($user->ID,$post_id);
+		if($renew_time) {
+			$m_time = date_i18n( get_option( 'date_format' ), $renew_time );
+			$t_time = date_i18n( __( 'Y/m/d' ).' '.get_option('time_format'), $renew_time );
+			
+			$time_diff = time() - $renew_time;
+
+			if ( $time_diff >= 0 ) {
+				$h_time = sprintf(__('Last renewal at %s'),$m_time);
+			} else {
+				$h_time = sprintf(__('Next renewal at %s'),$m_time);
+			}
+
+			$status .= '<br><abbr title="' . $t_time . '">'.$h_time. '</abbr>';
+		}
 		echo $status;
 	}
 
@@ -182,10 +198,64 @@ final class RUA_Members_List extends WP_List_Table {
 	 */
 	public function get_bulk_actions() {
 		return array(
+			'renew_user' => __( 'Renew', RUA_App::DOMAIN ),
 			'remove_user' => __( 'Remove', RUA_App::DOMAIN )
 		);
 	}
+	
+	/**
+	 * Display the bulk actions dropdown.
+	 * Overridden from the superclass to allow identification 
+	 * of the bulk apply button in the form data. This is to 
+	 * improve the detection of which action was performed:
+	 * the bulk action or the general update/edit post.
+	 *
+	 * @since 0.16.1-mattys101
+	 * @access protected
+	 *
+	 * @param string $which The location of the bulk actions: 'top' or 'bottom'.
+	 *                      This is designated as optional for backward compatibility.
+	 */
+	protected function bulk_actions( $which = '' ) {
+		if ( is_null( $this->_actions ) ) {
+			$this->_actions = $this->get_bulk_actions();
+			/**
+			 * Filters the list table Bulk Actions drop-down.
+			 *
+			 * The dynamic portion of the hook name, `$this->screen->id`, refers
+			 * to the ID of the current screen, usually a string.
+			 *
+			 * This filter can currently only be used to remove bulk actions.
+			 *
+			 * @since 3.5.0
+			 *
+			 * @param array $actions An array of the available bulk actions.
+			 */
+			$this->_actions = apply_filters( "bulk_actions-{$this->screen->id}", $this->_actions );
+			$two = '';
+		} else {
+			$two = '2';
+		}
 
+		if ( empty( $this->_actions ) )
+			return;
+
+		echo '<label for="bulk-action-selector-' . esc_attr( $which ) . '" class="screen-reader-text">' . __( 'Select bulk action' ) . '</label>';
+		echo '<select name="action' . $two . '" id="bulk-action-selector-' . esc_attr( $which ) . "\">\n";
+		echo '<option value="-1">' . __( 'Bulk Actions' ) . "</option>\n";
+
+		foreach ( $this->_actions as $name => $title ) {
+			$class = 'edit' === $name ? ' class="hide-if-no-js"' : '';
+
+			echo "\t" . '<option value="' . $name . '"' . $class . '>' . $title . "</option>\n";
+		}
+
+		echo "</select>\n";
+
+		submit_button( __( 'Apply' ), 'action', '', false, array( 'id' => "doaction$two", 'name' => 'bulkaction' ) );
+		echo "\n";
+	}
+	
 	/**
 	 * Generate the table navigation above or below the table
 	 *
@@ -193,6 +263,9 @@ final class RUA_Members_List extends WP_List_Table {
 	 * @param string $which
 	 */
 	public function display_tablenav( $which ) {
+		if ( 'top' === $which ) {
+//			wp_nonce_field( 'bulk-members-' . $_REQUEST['level_id'], '_ca_bulk_members' );
+		}
 		?>
 	<div class="tablenav <?php echo esc_attr( $which ); ?>">
 

@@ -116,7 +116,7 @@ function rua_add_user_level($user_id,$level_id) {
  * @since  0.16.1-mattys101
  * @param  int  $user_id
  * @param  int  $level_id
- * @parem  boolean $once_per_period
+ * @param  boolean $once_per_period (Default: true)
  * @return int|boolean
  */
 function rua_renew_user_level($user_id, $level_id, $once_per_period=true) {

@@ -539,7 +539,30 @@ final class RUA_Level_Edit extends RUA_Admin {
 	 * @return void
 	 */
 	public function process_actions($post_id) {
-		$action = isset($_REQUEST['action']) ? $_REQUEST['action'] : (isset($_REQUEST['action2']) ? $_REQUEST['action2'] : '');
+		// We try to determine if the bulk apply button was clicked,
+		// if so we need to use the 'action2' action.
+		// Note that not all browsers send the info for the clicked button,
+		// or might send both, so if we can determine which button was clicked
+		// 'action2' will take priority if an action has been seelected in
+		// the drop-down. The idea being that if the user has selected a bulk
+		// action that is what they are probably trying to execute.
+		$bulk_apply_clicked = isset($_REQUEST['bulkaction']) && !isset($_REQUEST['save']);
+		$update_button_clicked = !isset($_REQUEST['bulkaction']) && isset($_REQUEST['save']);
+		
+		if ($bulk_apply_clicked) {
+			// Will do nothing if no bulk action has been selected and 
+			// the apply button is clicked. This is expected behaviour.
+			$action = isset($_REQUEST['action2']) ? $_REQUEST['action2'] : '';
+		}
+		else if ($update_button_clicked) {
+			// Should always have a value since it is not a select input.
+			$action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
+		}
+		else {
+			// Button unkown: check action2 first, so bulk actions take 
+			// priority over standard updates.
+			$action = isset($_REQUEST['action2']) && $_REQUEST['action2'] != -1 ? $_REQUEST['action2'] : (isset($_REQUEST['action']) ? $_REQUEST['action'] : '');
+		}
 
 		if ( isset( $_POST['deletepost'] ) )
 			$action = 'delete';
@@ -645,7 +668,19 @@ final class RUA_Level_Edit extends RUA_Admin {
 						RUA_App::instance()->level_manager->remove_user_level($user_id,$post_id);
 					}
 					wp_safe_redirect($sendback.'#top#section-members');
-					exit;
+					exit();
+				case 'renew_user':
+					check_admin_referer('update-post_' . $post_id);
+					$users = is_array($_REQUEST['user']) ? $_REQUEST['user'] : array($_REQUEST['user']);
+					$post_id = isset($_REQUEST['level_id']) ? $_REQUEST['level_id'] : $_REQUEST['post_ID'];
+					foreach ($users as $user_id) {
+						$renewed = RUA_App::instance()->level_manager->renew_user_level($user_id,$post_id, false);
+						if (!$renewed) {
+							RUA_App::instance()->level_manager->add_user_level($user_id,$post_id, false);
+						}
+					}
+					wp_safe_redirect($sendback.'#top#section-members');
+					exit();
 				default:
 					do_action('rua/admin/action', $action, $post);
 					break;
