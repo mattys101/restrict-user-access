@@ -7,9 +7,9 @@
  */
 /*
 Plugin Name: Restrict User Access
-Plugin URI: 
-Description: Easily restrict content and contexts to provide premium access for specific User Levels.
-Version: 0.17.2
+Plugin URI: https://github.com/mattys101/restrict-user-access.git
+Description: [Do not auto-update!] Easily restrict content and contexts to provide premium access for specific User Levels.
+Version: 0.17.2-mattys101
 Author: Joachim Jensen
 Author URI: https://dev.institute
 Text Domain: restrict-user-access

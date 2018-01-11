@@ -4,12 +4,13 @@ Donate link:
 Tags: restrict content, membership, access control, capabilities, members, bbpress, buddypress
 Requires at least: 4.1
 Tested up to: 4.9
-Stable tag: 0.17.2
+Stable tag: 0.17.2-mattys101
 License: GPLv3
 
 Create Access Levels to manage capabilities and conditionally restrict content. Lightweight and powerful.
 
 Modification Notice: This version of Restrict User Access has been modified by Matt Selway (mattys101) to support mebership renewals.
+The source code is available on [Github](https://github.com/mattys101/restrict-user-access)
 
 == Description ==
 
@@ -99,6 +100,12 @@ rua_get_level_by_name($name:string):int
 rua_get_level_caps($name:string,$hierarchical:bool):array
 `
 
+Renewal support
+`rua_get_user_level_renew($user_id:int,$level_id:int):int // time of the next renewal
+rua_renew_user_level($user_id:int,$level_id:int,$once_per_period:bool):int|bool // renews a particular level for the user
+rua_add_renew_user_level($user_id:int,$level_id:int):int|bool // adds or renews a level for the user, depending on the current state
+`
+
 = For more information =
 
 * [Follow development on Github](https://github.com/intoxstudio/restrict-user-access)
@@ -173,6 +180,10 @@ Capabilities and Restrictions are separate settings with different functions. Re
 
 == Changelog ==
 
+= 0.17.2-mattys101 =
+
+* Added: ability to renew time-based memberships before the the membership expires
+
 = 0.17.2 =
 
 * Added: new admin menu icon
@@ -195,6 +206,10 @@ Capabilities and Restrictions are separate settings with different functions. Re
 * Fixed: minor bug fixes
 * Updated: wp-content-aware-engine
 * Deprecated: api to get user roles
+
+= 0.16.1-mattys101 =
+
+* Added: ability to renew time-based memberships before the the membership expires
 
 = 0.16 =
 
