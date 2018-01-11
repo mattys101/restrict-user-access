@@ -200,7 +200,6 @@ final class RUA_Members_List extends WP_List_Table {
 		return array(
 			'renew_user' => __( 'Renew', 'restrict-user-access' ),
 			'remove_user' => __( 'Remove', 'restrict-user-access' )
-			'remove_user' => __( 'Remove', 'restrict-user-access' )
 		);
 	}
 	
