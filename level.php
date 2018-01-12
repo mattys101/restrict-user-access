@@ -82,6 +82,11 @@ final class RUA_Level_Manager {
 		//fixes problem with WooCommerce Orders
 		add_filter( 'user_has_cap',
 			array($this,'user_level_has_cap'), 9, 4 );
+			
+		// hook late to remove restricted posts from search results,
+		// even if added by other filters.
+		add_filter( 'posts_results', 
+			array($this, 'filter_posts_results'), 10000, 2 );
 	}
 
 	/**
@@ -205,6 +210,105 @@ final class RUA_Level_Manager {
 			}
 		}
 		return do_shortcode($content);
+	}
+	
+	/**
+	 * Filters posts from the search results and archive pages if the current user cannot access them.
+	 * 
+	 * @since   0.17.2.matty101
+	 * @param   array    $posts
+	 * @param   WPQuery  $query
+	 * @return  array
+	 */
+	public function filter_posts_results( $posts, $query ) {
+		if ( !($query->is_search() || $query->is_archive()) || $this->_has_global_access())
+			return $posts;
+		
+		$result = array();
+		
+		foreach ($posts as $post) {
+			if ( $this->_access_allowed($post) )
+				$result[] = $post;
+		} 
+		
+		return $result;
+	}
+	
+	/**
+	 * Check if a specific post can be accessed by the user.
+	 *
+	 * NOTE: This is not particularly efficient in the backend; however,
+	 *       since search results, for example, are typically paged, we
+	 *       won't have to run this too many times in one go.
+	 * 
+	 * @since 0.17.2.matty101
+	 * @param   WP_Post   $post_to_check 
+	 * @eturn   bool
+	 */
+	private function _access_allowed( $post_to_check ) {
+		
+		if (!$post_to_check) {
+			return false;
+		}
+		
+		if ($this->_has_global_access()) {
+			return true;
+		}
+		
+		global $wp_query, $post;
+		
+		$temp_query = new WP_Query(array('p' => $post_to_check->ID, 'post_type' => $post_to_check->post_type));
+		
+		$posts = WPCACore::get_posts_in_context(RUA_App::TYPE_RESTRICT, $temp_query, $post_to_check);
+		
+		if ($posts) {
+			$kick = 0;
+			$user_levels = array_flip($this->get_user_levels());
+			foreach ($posts as $post) {
+				if(!isset($user_levels[$post->ID])) {
+					$kick = $post->ID;
+				} else {
+					$kick = 0;
+					break;
+				}
+			}
+
+			if(!$kick && is_user_logged_in()) {
+				$conditions = WPCACore::get_conditions(RUA_App::TYPE_RESTRICT);
+				foreach ($conditions as $condition => $level) {
+					//Check post type
+					if(isset($posts[$level])) {
+						$drip = get_post_meta($condition,RUA_App::META_PREFIX.'opt_drip',true);
+						//Restrict access to dripped content
+						if($drip && $this->metadata()->get('role')->get_data($level) === '') {
+							$start = $this->get_user_level_start(null,$level);
+							$drip_time = strtotime('+'.$drip.' days 00:00',$start);
+							if(time() <= $drip_time) {
+								$kick = $level;
+							} else {
+								$kick = 0;
+								break;
+							}
+						} else {
+							$kick = 0;
+							break;
+						}
+					}
+				}
+			}
+
+			if($kick) {
+				$action = $this->metadata()->get('handle')->get_data($kick);
+				if ($action === 1) {
+					//add_filter( 'the_content', array($this,'content_tease'), 8);
+					// TODO: how to handle teased content in search results.
+					return false;
+				}
+				else return false;
+			}
+		}
+		
+		return true;
 	}
 
 	/**
@@ -655,7 +759,7 @@ final class RUA_Level_Manager {
 		}
 
 		$posts = WPCACore::get_posts(RUA_App::TYPE_RESTRICT);
-
+		
 		if ($posts) {
 			$kick = 0;
 			$levels = array_flip($this->get_user_levels());
