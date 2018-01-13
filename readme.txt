@@ -4,7 +4,7 @@ Donate link:
 Tags: restrict content, membership, access control, capabilities, members, bbpress, buddypress
 Requires at least: 4.1
 Tested up to: 4.9
-Stable tag: 0.17.2-mattys101.1
+Stable tag: 0.17.2-mattys101.2
 License: GPLv3
 
 Create Access Levels to manage capabilities and conditionally restrict content. Lightweight and powerful.
@@ -19,6 +19,9 @@ Restrict content and contexts to control what your users get exclusive access to
 Use this plugin to quickly set up a membership site where your users can get different levels such as Gold, Silver and Bronze. Then, restrict access to e.g. posts tagged "Premium", articles written by specific authors, or all your free products.
 
 No coding required.
+
+* Restrict access to search results and archive results (beta)
+* Restrict access to uploaded files (based on the attachment page and their parent page/post) (beta).
 
 ####Unlimited Access Levels
 
