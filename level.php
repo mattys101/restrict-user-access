@@ -260,6 +260,7 @@ final class RUA_Level_Manager {
 		$result = array();
 		
 		foreach ($posts as $post) {
+			// TODO: how to handle teased content in search results?
 			if ( !$this->_access_blocked($post) )
 				$result[] = $post;
 		} 
@@ -299,9 +300,9 @@ final class RUA_Level_Manager {
 		$temp_query = new WP_Query(array('p' => $post_to_check->ID, 'post_type' => $post_to_check->post_type));
 		
 		$posts = WPCACore::get_posts_in_context(RUA_App::TYPE_RESTRICT, $temp_query, $post_to_check);
+		$kick = 0;
 		
 		if ($posts) {
-			$kick = 0;
 			$user_levels = array_flip($this->get_user_levels());
 			foreach ($posts as $post) {
 				if(!isset($user_levels[$post->ID])) {
@@ -335,19 +336,9 @@ final class RUA_Level_Manager {
 					}
 				}
 			}
-
-			if($kick) {
-				$action = $this->metadata()->get('handle')->get_data($kick);
-				if ($action === 1) {
-					//add_filter( 'the_content', array($this,'content_tease'), 8);
-					// TODO: how to handle teased content in search results.
-					return $kick;
-				}
-				else return $kick;
-			}
 		}
 		
-		return 0;
+		return $kick;
 	}
 
 	/**
@@ -1027,34 +1018,14 @@ final class RUA_Level_Manager {
    			return;
    		}
    		
+   		if ($this->_has_global_access()) {
+   			// Short cut for complete access
+   			$this->_sendfile($path, $this->_determine_mimetype($path));
+	    	die();
+   		}
+   		
         $mimetype = $this->_determine_mimetype($path);
-   		$att_post = false;
-        $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attached_file', 'value' => $file ) ) ) );
-        
-        if ( count($att_posts) > 0 ) {
-        	// the file has an attachment page
-        	$att_post = $att_posts[0];
-        	// XXX: will there ever be a situation where there are multiple posts returned?
-        }
-        else if ( 0 === strpos($mimetype, 'image/') ) {
-        	// images may have scaled thumbnails, we need to check if this is one of them.
-            $file_info = pathinfo( $file );
-            $filename = $file_info['filename'] . '.' . $file_info['extension'];
-            $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attachment_metadata', 'compare' => 'LIKE', 'value' => $filename ) ) ) );
-            foreach ( $att_posts as $SINGLEimage ) {
-                $meta = wp_get_attachment_metadata( $SINGLEimage->ID );
-               	
-                if ( count($meta['sizes']) > 0 && $file_info['dirname'] == pathinfo($meta['file'])['dirname'] ) {
-                    foreach ( $meta['sizes'] as $size ) {
-                        if ( $filename == $size['file'] ) {
-                        	$att_post = $SINGLEimage;
-                        	break;
-                        }
-                    }
-                }
-                if ($att_post) break;
-            }
-        }
+   		$att_post = $this->_find_attachment_post($file, $mimetype);
         
         if (!$att_post) {
         	// most likely not a valid file, but drop out to WP 404, just to be safe
@@ -1065,9 +1036,8 @@ final class RUA_Level_Manager {
    			return;
         }
         
-        // Check authorisation
-        // TODO: make global access shortcut the rest of the method
-        $level = $this->_has_global_access() ? 0 : $this->_access_blocked($att_post);
+        // Check authorisation (provides the level, if any, that is blocking access)
+        $level = $this->_access_blocked($att_post);
         
         // We also want to check the parent page of the attachment, so that if we lock 
         // down the parent page, we automatically lock down the attached files.
@@ -1076,7 +1046,7 @@ final class RUA_Level_Manager {
         	$level = $this->_access_blocked($att_post->post_parent);
         
         if ( $level ) {
-        	// Always do redirect
+        	// Always do redirect (the action, redirect or tease, doesn't matter here)
 			$page = $this->metadata()->get('page')->get_data($level);
 			$redirect = '';
 			$url = 'http'.( is_ssl() ? 's' : '' ).'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'];
@@ -1099,13 +1069,21 @@ final class RUA_Level_Manager {
         
         // Check standard 'password protection' using the parent post if available
         // (the attachment pages themselves cannot be given a password).
-        // Placed this second as this would how normal content would work, i.e. the 
+        // Placed this second as this would be how normal content would work, i.e. the 
         // template redirect would occur first, then you might see the password prompt.
         if ( $att_post->post_parent > 0 && post_password_required( $att_post->post_parent ) ) {
             wp_die( get_the_password_form() );// show the password form 
         }
         
         // We got this far, output the file.
+        $this->_sendfile($path, $mimetype);
+    	die();
+	}
+	
+	/**
+	 * Configures the response headers and puts the file content on the output stream.
+	 */
+	private function _sendfile($path, $mimetype) {
 		header( 'Content-type: ' . $mimetype ); // always send this
 
 	    $last_modified = gmdate( 'D, d M Y H:i:s', filemtime( $path ) );
@@ -1120,10 +1098,43 @@ final class RUA_Level_Manager {
 		if ( false === strpos( $_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS' ) )
 		    header( 'Content-Length: ' . filesize( $path ) );
 	    
+	    // TODO: support for gzip or deflate
 //		header('Content-Encoding: identity');
 	
 		$bytes = @readfile( $path );
-	    die();
+	}
+	
+	/**
+	 * Finds the attachment post for the given file.
+	 * Returns the post if found, FALSE otherwise.
+	 */
+	private function _find_attachment_post($file, $mimetype) {
+       $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attached_file', 'value' => $file ) ) ) );
+        
+        if ( count($att_posts) > 0 ) {
+        	// the file has an attachment page
+        	return $att_posts[0];
+        	// XXX: will there ever be a situation where there are multiple posts returned?
+        }
+        else if ( 0 === strpos($mimetype, 'image/') ) {
+        	// images may have scaled thumbnails, we need to check if this is one of them.
+            $file_info = pathinfo( $file );
+            $filename = $file_info['filename'] . '.' . $file_info['extension'];
+            $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attachment_metadata', 'compare' => 'LIKE', 'value' => $filename ) ) ) );
+            foreach ( $att_posts as $SINGLEimage ) {
+                $meta = wp_get_attachment_metadata( $SINGLEimage->ID );
+               	
+                if ( count($meta['sizes']) > 0 && $file_info['dirname'] == pathinfo($meta['file'])['dirname'] ) {
+                    foreach ( $meta['sizes'] as $size ) {
+                        if ( $filename == $size['file'] ) {
+                        	return $SINGLEimage;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return false;
 	}
 	
 	/**
