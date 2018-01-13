@@ -65,6 +65,10 @@ final class RUA_Level_Manager {
 			array($this,'create_restrict_type'),99);
 		add_action( 'user_register',
 			array($this,'registered_add_level'));
+		add_action('wp_loaded', 
+			array($this, 'init_protect_uploads'));
+		add_action( 'generate_rewrite_rules', 
+			array($this, 'generate_rewrite_rules') );
 	}
 
 	/**
@@ -87,6 +91,35 @@ final class RUA_Level_Manager {
 		// even if added by other filters.
 		add_filter( 'posts_results', 
 			array($this, 'filter_posts_results'), 10000, 2 );
+		
+	}
+	
+	/**
+	 * Add rewrite rules for handling file access through WP.
+	 * 
+	 * @since  0.17.2-mattys101
+	 * @param  WP_Rewrite $rewrite
+	 * @return WP_Rewrite
+	 */
+	public function generate_rewrite_rules( $wp_rewrite ) {
+		$upload_url = wp_upload_dir();
+		$upload_url = $upload_url[ 'baseurl' ];
+	    $regex = str_replace( site_url( '/' ), '', $upload_url );
+	    $regex .= '/(.*)$';
+	    $wp_rewrite->add_external_rule( $regex, 'index.php?file=$1' );
+	    return $wp_rewrite;
+	}
+	
+	/**
+	 * Handle access to uploads and ensure users get access only if they 
+	 * have an appropriate level, or there are no restrictions on the file.
+	 * 
+	 * @since  0.17.2-mattys101
+	 */
+	public function init_protect_uploads( ) {
+    	if ( isset($_GET[ 'file' ]) ) {
+    		$this->_authorize_file_access($_GET[ 'file' ]);
+    	}
 	}
 
 	/**
@@ -227,7 +260,7 @@ final class RUA_Level_Manager {
 		$result = array();
 		
 		foreach ($posts as $post) {
-			if ( $this->_access_allowed($post) )
+			if ( !$this->_access_blocked($post) )
 				$result[] = $post;
 		} 
 		
@@ -236,24 +269,30 @@ final class RUA_Level_Manager {
 	
 	/**
 	 * Check if a specific post can be accessed by the user.
+	 * Returns the ID of the level that is blocking the user access if 
+	 * any exist. Therefore, if !_access_blocked(...) is true, then 
+	 * the user can access the content.
 	 *
 	 * NOTE: This is not particularly efficient in the backend; however,
 	 *       since search results, for example, are typically paged, we
 	 *       won't have to run this too many times in one go.
 	 * 
-	 * @since 0.17.2.matty101
+	 * @since   0.17.2.matty101
 	 * @param   WP_Post   $post_to_check 
-	 * @eturn   bool
+	 * @return  int
 	 */
-	private function _access_allowed( $post_to_check ) {
+	private function _access_blocked( $post_to_check ) {
 		
 		if (!$post_to_check) {
-			return false;
+			return 0;
 		}
 		
 		if ($this->_has_global_access()) {
-			return true;
+			return 0;
 		}
+		
+		if (is_numeric($post_to_check)) 
+			$post_to_check = get_post($post_to_check);
 		
 		global $wp_query, $post;
 		
@@ -302,13 +341,13 @@ final class RUA_Level_Manager {
 				if ($action === 1) {
 					//add_filter( 'the_content', array($this,'content_tease'), 8);
 					// TODO: how to handle teased content in search results.
-					return false;
+					return $kick;
 				}
-				else return false;
+				else return $kick;
 			}
 		}
 		
-		return true;
+		return 0;
 	}
 
 	/**
@@ -959,6 +998,170 @@ final class RUA_Level_Manager {
 		$level_id = get_option('rua-registration-level',0);
 		if($level_id) {
 			$this->add_user_level($user_id,$level_id);
+		}
+	}
+	
+	/**
+	 * Mediate file access, checking user levels.
+	 *
+	 * This method is based on the implementation provided by bueltge and 
+	 * kraftner on Stackexchange: https://wordpress.stackexchange.com/a/37765
+	 * 
+	 * @since 0.17.2-mattys101
+	 * @return void
+	 */
+	private function _authorize_file_access( $file ) {
+
+		$file = preg_replace("/\.+/", '.', $file); // prevent '..'
+		$parts = explode( '/', $file);
+		$file = implode ('/', array_map('sanitize_file_name', $parts) ); // just to be safe
+		
+		$upload_dir = wp_upload_dir();
+   		$path = $upload_dir[ 'basedir' ] . '/' . $file;
+   		
+   		if (!is_file($path)) {
+   			// let it drop out to normal WP handling, which should result in 404.
+   			// Not a huge fan of this, would prefer to make it more explicit
+   			global $wp;
+   			$wp->handle_404(); // should set up the state to be 404
+   			return;
+   		}
+   		
+        $mimetype = $this->_determine_mimetype($path);
+   		$att_post = false;
+        $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attached_file', 'value' => $file ) ) ) );
+        
+        if ( count($att_posts) > 0 ) {
+        	// the file has an attachment page
+        	$att_post = $att_posts[0];
+        	// XXX: will there ever be a situation where there are multiple posts returned?
+        }
+        else if ( 0 === strpos($mimetype, 'image/') ) {
+        	// images may have scaled thumbnails, we need to check if this is one of them.
+            $file_info = pathinfo( $file );
+            $filename = $file_info['filename'] . '.' . $file_info['extension'];
+            $att_posts = get_posts( array( 'post_type' => 'attachment', 'meta_query' => array( array( 'key' => '_wp_attachment_metadata', 'compare' => 'LIKE', 'value' => $filename ) ) ) );
+            foreach ( $att_posts as $SINGLEimage ) {
+                $meta = wp_get_attachment_metadata( $SINGLEimage->ID );
+               	
+                if ( count($meta['sizes']) > 0 && $file_info['dirname'] == pathinfo($meta['file'])['dirname'] ) {
+                    foreach ( $meta['sizes'] as $size ) {
+                        if ( $filename == $size['file'] ) {
+                        	$att_post = $SINGLEimage;
+                        	break;
+                        }
+                    }
+                }
+                if ($att_post) break;
+            }
+        }
+        
+        if (!$att_post) {
+        	// most likely not a valid file, but drop out to WP 404, just to be safe
+        	// this means we cannot accidentally serve files that have been manually placed 
+        	// on the server but not through the proper WP mechanisms.  
+        	global $wp;
+   			$wp->handle_404(); // should set up the state to be 404
+   			return;
+        }
+        
+        // Check authorisation
+        // TODO: make global access shortcut the rest of the method
+        $level = $this->_has_global_access() ? 0 : $this->_access_blocked($att_post);
+        
+        // We also want to check the parent page of the attachment, so that if we lock 
+        // down the parent page, we automatically lock down the attached files.
+        // TODO: make this an option
+        if (!$level && $att_post->post_parent) 
+        	$level = $this->_access_blocked($att_post->post_parent);
+        
+        if ( $level ) {
+        	// Always do redirect
+			$page = $this->metadata()->get('page')->get_data($level);
+			$redirect = '';
+			$url = 'http'.( is_ssl() ? 's' : '' ).'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'];
+			if (is_numeric($page)) {
+				$redirect = get_permalink($page);
+			} else if ($url != get_site_url() . $page) {
+				$redirect = get_site_url() . $page;
+			}
+			//only redirect if current page != redirect page
+			if($redirect) {
+				$url = remove_query_arg('redirect_to',urlencode($url));
+				wp_safe_redirect(add_query_arg(
+					'redirect_to',
+					$url,
+					$redirect
+				));
+				exit();
+			}
+        }
+        
+        // Check standard 'password protection' using the parent post if available
+        // (the attachment pages themselves cannot be given a password).
+        // Placed this second as this would how normal content would work, i.e. the 
+        // template redirect would occur first, then you might see the password prompt.
+        if ( $att_post->post_parent > 0 && post_password_required( $att_post->post_parent ) ) {
+            wp_die( get_the_password_form() );// show the password form 
+        }
+        
+        // We got this far, output the file.
+		header( 'Content-type: ' . $mimetype ); // always send this
+
+	    $last_modified = gmdate( 'D, d M Y H:i:s', filemtime( $path ) );
+		$etag = '"' . md5( $last_modified ) . '"';
+		header( "Last-Modified: $last_modified GMT" );
+		header( 'ETag: ' . $etag );
+		header( 'Expires: ' . gmdate( 'D, d M Y H:i:s', time() + 100000000 ) . ' GMT' );
+		
+		// Support for Conditional GET
+	    $this->_client_cache_control($last_modified, $etag);
+		
+		if ( false === strpos( $_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS' ) )
+		    header( 'Content-Length: ' . filesize( $path ) );
+	    
+//		header('Content-Encoding: identity');
+	
+		$bytes = @readfile( $path );
+	    die();
+	}
+	
+	/**
+	 * Return the mimetype of the file. Defaults to image if it cannot be properly identified.
+	 */
+	private function _determine_mimetype($file) {
+		$mime = wp_check_filetype( $file );
+
+		if( false === $mime[ 'type' ] && function_exists( 'mime_content_type' ) )
+		    $mime[ 'type' ] = mime_content_type( $file );
+
+		return $mime[ 'type' ]
+				? $mime[ 'type' ]
+				: 'image/' . substr( $file, strrpos( $file, '.' ) + 1 );
+	}
+	
+	/**
+	 * Respond with a 304 if the file has not been modified (according to client request).
+	 */
+	private function _client_cache_control($last_modified, $etag) {
+		$client_etag = isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) ? stripslashes( $_SERVER['HTTP_IF_NONE_MATCH'] ) : false;
+
+		if( ! isset( $_SERVER['HTTP_IF_MODIFIED_SINCE'] ) )
+		    $_SERVER['HTTP_IF_MODIFIED_SINCE'] = false;
+
+		$client_last_modified = trim( $_SERVER['HTTP_IF_MODIFIED_SINCE'] );
+		// If string is empty, return 0. If not, attempt to parse into a timestamp
+		$client_modified_timestamp = $client_last_modified ? strtotime( $client_last_modified ) : 0;
+
+		// Make a timestamp for our most recent modification...
+		$modified_timestamp = strtotime($last_modified);
+
+		if ( ( $client_last_modified && $client_etag )
+		    ? ( ( $client_modified_timestamp >= $modified_timestamp) && ( $client_etag == $etag ) )
+		    : ( ( $client_modified_timestamp >= $modified_timestamp) || ( $client_etag == $etag ) )
+		    ) {
+		    status_header( 304 );
+		    exit();
 		}
 	}
 
